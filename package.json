@@ -1,0 +1,45 @@
+{
+  "name": "clothing-recommendation-backend",
+  "version": "0.1.0",
+  "description": "Backend for clothing recommendation app",
+  "main": "server.js",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "scripts": {
+         "start": "node src/server.js",
+         "dev": "nodemon src/server.js",
+         "import": "node scripts/import-products.js",
+         "deploy": "./google-cloud-sdk/bin/gcloud app deploy",
+         "test": "echo \"Error: no test specified\" && exit 1"
+    
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lucahliau/new-backend.git"
+  },
+  "keywords": [
+    "clothing",
+    "recommendation",
+    "app"
+  ],
+  "author": "Luca Liautaud",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/lucahliau/new-backend/issues"
+  },
+  "homepage": "https://github.com/lucahliau/new-backend#readme",
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.12.1"
+  },
+  "devDependencies": {
+    "morgan": "^1.10.0",
+    "nodemon": "^3.1.9"
+  }
+}

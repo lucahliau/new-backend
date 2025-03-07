@@ -1,0 +1,4 @@
+env_variables:
+  MONGODB_URI: sm://projects/steady-webbing-453020-u5/secrets/MONGODB_URI/versions/latest
+  JWT_SECRET: sm://projects/steady-webbing-453020-u5/secrets/JWT_SECRET/versions/latest
+  ADMIN_TOKEN: sm://projects/steady-webbing-453020-u5/secrets/ADMIN_TOKEN/versions/latest

@@ -1,0 +1,14 @@
+# .gcloudignore
+.git
+.gitignore
+.gcloudignore
+.github/
+__pycache__/
+.venv/
+venv/
+env/
+node_modules/
+#!include:.gitignore
+npm-debug.log
+README.md
+test/
