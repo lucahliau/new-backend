@@ -2,7 +2,7 @@ steps:
   # Install dependencies
   - name: 'node:16'
     entrypoint: npm
-    args: ['install']
+    args: ['install', '--production']
     
   # Create env_variables.yaml with secrets from Secret Manager
   - name: 'gcr.io/cloud-builders/gcloud'
@@ -16,23 +16,51 @@ steps:
         echo "  JWT_EXPIRES_IN: \"7d\"" >> env_variables.yaml
         echo "  ADMIN_TOKEN: \"$$ADMIN_TOKEN\"" >> env_variables.yaml
     secretEnv: ['MONGODB_URI', 'JWT_SECRET', 'ADMIN_TOKEN']
+  
+  # Create app.yaml that includes env_variables.yaml
+  - name: 'ubuntu'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        cat > app.yaml << 'EOL'
+        runtime: nodejs16
+
+        env_variables:
+          NODE_ENV: "production"
+          PORT: "8080"
+          
+        includes:
+          - env_variables.yaml
+          
+        automatic_scaling:
+          min_idle_instances: 0
+          max_idle_instances: 1
+          min_instances: 0
+          max_instances: 2
+          target_cpu_utilization: 0.65
+        EOL
     
-  # Deploy to App Engine
-  - name: 'gcr.io/cloud-builders/gcloud'
-    args: ['app', 'deploy', '--version=${_VERSION}']
+  # Deploy using the official Cloud SDK image (avoiding local SDK path issues)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Deploy with --quiet to avoid interactive prompts
+        gcloud app deploy --quiet
     
 substitutions:
   _VERSION: v1-${SHORT_SHA}
   
-# This fixes the error by specifying how to handle logs
 options:
   logging: CLOUD_LOGGING_ONLY
   
 availableSecrets:
   secretManager:
-    - versionName: projects/$PROJECT_ID/secrets/MONGODB_URI/versions/latest
+    - versionName: projects/${PROJECT_ID}/secrets/mongodb-uri/versions/latest
       env: 'MONGODB_URI'
-    - versionName: projects/$PROJECT_ID/secrets/JWT_SECRET/versions/latest
+    - versionName: projects/${PROJECT_ID}/secrets/jwt-secret/versions/latest
       env: 'JWT_SECRET'
-    - versionName: projects/$PROJECT_ID/secrets/ADMIN_TOKEN/versions/latest
+    - versionName: projects/${PROJECT_ID}/secrets/admin-token/versions/latest
       env: 'ADMIN_TOKEN'
