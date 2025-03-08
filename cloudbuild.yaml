@@ -4,34 +4,37 @@ steps:
     entrypoint: npm
     args: ['install', '--production']
     
-  # Create env_variables.yaml with secrets from Secret Manager
+  # Install required tools for direct API deployment
+  - name: 'debian:buster-slim'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        apt-get update
+        apt-get install -y curl zip jq
+        
+  # Create app.yaml with environment variables from Secret Manager
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        echo "env_variables:" > env_variables.yaml
-        echo "  MONGODB_URI: \"$$MONGODB_URI\"" >> env_variables.yaml
-        echo "  JWT_SECRET: \"$$JWT_SECRET\"" >> env_variables.yaml
-        echo "  JWT_EXPIRES_IN: \"7d\"" >> env_variables.yaml
-        echo "  ADMIN_TOKEN: \"$$ADMIN_TOKEN\"" >> env_variables.yaml
-    secretEnv: ['MONGODB_URI', 'JWT_SECRET', 'ADMIN_TOKEN']
-  
-  # Create app.yaml that includes env_variables.yaml
-  - name: 'ubuntu'
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        cat > app.yaml << 'EOL'
+        # Get secrets from Secret Manager
+        MONGODB_URI=$(gcloud secrets versions access latest --secret=mongodb-uri)
+        JWT_SECRET=$(gcloud secrets versions access latest --secret=jwt-secret)
+        ADMIN_TOKEN=$(gcloud secrets versions access latest --secret=admin-token)
+        
+        # Create app.yaml with the secrets
+        cat > app.yaml << EOL
         runtime: nodejs16
-
+        
         env_variables:
           NODE_ENV: "production"
           PORT: "8080"
-          
-        includes:
-          - env_variables.yaml
+          MONGODB_URI: "${MONGODB_URI}"
+          JWT_SECRET: "${JWT_SECRET}"
+          JWT_EXPIRES_IN: "7d"
+          ADMIN_TOKEN: "${ADMIN_TOKEN}"
           
         automatic_scaling:
           min_idle_instances: 0
@@ -41,26 +44,85 @@ steps:
           target_cpu_utilization: 0.65
         EOL
     
-  # Deploy using the official Cloud SDK image (avoiding local SDK path issues)
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  # Deploy using direct API calls rather than gcloud
+  - name: 'debian:buster-slim'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        # Deploy with --quiet to avoid interactive prompts
-        gcloud app deploy --quiet
+        # Install tools needed for deployment
+        apt-get update
+        apt-get install -y curl zip jq
+        
+        # Create .gcloudignore if it doesn't exist
+        if [ ! -f .gcloudignore ]; then
+          cat > .gcloudignore << 'EOL'
+        .git/
+        .github/
+        .gitignore
+        .gcloudignore
+        node_modules/
+        cloudbuild.yaml
+        scripts/
+        *.md
+        google-cloud-sdk/
+        EOL
+        fi
+        
+        # Package application (excluding items in .gcloudignore)
+        echo "Creating deployment package..."
+        zip -r app.zip . -x@.gcloudignore
+        
+        # Get project ID from environment
+        PROJECT_ID=$PROJECT_ID
+        echo "Deploying to project: $PROJECT_ID"
+        
+        # Get authentication token from metadata server
+        echo "Getting authentication token..."
+        TOKEN=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | jq -r .access_token)
+        
+        # Generate a version ID based on timestamp
+        VERSION_ID="v-$(date +%Y%m%dt%H%M%S)"
+        echo "Deploying version: $VERSION_ID"
+        
+        # Prepare deployment request payload
+        cat > deployment.json << EOL
+        {
+          "id": "$VERSION_ID",
+          "deployment": {
+            "files": {
+              "app.yaml": {
+                "sourceUrl": "gs://${PROJECT_ID}_cloudbuild/source/app.yaml"
+              }
+            }
+          }
+        }
+        EOL
+        
+        # Upload application zip to Cloud Storage
+        echo "Uploading application package..."
+        curl -X POST \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/zip" \
+          --data-binary @app.zip \
+          "https://storage.googleapis.com/upload/storage/v1/b/${PROJECT_ID}_cloudbuild/o?uploadType=media&name=source/app.zip"
+        
+        # Upload app.yaml to Cloud Storage  
+        curl -X POST \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: text/plain" \
+          --data-binary @app.yaml \
+          "https://storage.googleapis.com/upload/storage/v1/b/${PROJECT_ID}_cloudbuild/o?uploadType=media&name=source/app.yaml"
+        
+        # Create new App Engine version
+        echo "Creating new App Engine version..."
+        curl -X POST \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          --data @deployment.json \
+          "https://appengine.googleapis.com/v1/apps/${PROJECT_ID}/services/default/versions"
+        
+        echo "Deployment initiated. Check your App Engine console for status."
     
-substitutions:
-  _VERSION: v1-${SHORT_SHA}
-  
 options:
   logging: CLOUD_LOGGING_ONLY
-  
-availableSecrets:
-  secretManager:
-    - versionName: projects/${PROJECT_ID}/secrets/mongodb-uri/versions/latest
-      env: 'MONGODB_URI'
-    - versionName: projects/${PROJECT_ID}/secrets/jwt-secret/versions/latest
-      env: 'JWT_SECRET'
-    - versionName: projects/${PROJECT_ID}/secrets/admin-token/versions/latest
-      env: 'ADMIN_TOKEN'
